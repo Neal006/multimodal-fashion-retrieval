@@ -1,0 +1,18 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# image corpus (3200 jpgs) — data, not code
+test/
+
+# scratch
+indexer/_smoke_caption.py
+eval/_example_block.html
+
+# claude internal
+.claude/
+
+# artifacts/ IS committed (~8 MB): embeddings, index, captions, ids — repo runs standalone

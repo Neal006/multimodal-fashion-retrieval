@@ -1,0 +1,10 @@
+torch>=2.4
+open_clip_torch>=2.24
+transformers>=5.0        # AutoModelForImageTextToText (was AutoModelForVision2Seq in 4.x)
+accelerate
+faiss-cpu
+rank-bm25
+pillow
+numpy
+tqdm
+onnxruntime             # query-time; ONNX export deferred, torch-cpu fallback used
