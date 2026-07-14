@@ -4,7 +4,7 @@ __pycache__/
 .venv/
 venv/
 env/
-
+.env
 # image corpus (3200 jpgs) — data, not code
 test/
 

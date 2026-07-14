@@ -6,8 +6,8 @@ import numpy as np, torch, open_clip
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from config import (DATA_DIR, EMB_FILE, EMB_BASELINE_FILE, IDS_FILE,
-                    SIGLIP_ID, CLIP_BASELINE, N_IMAGES)
+from config import (EMB_FILE, EMB_BASELINE_FILE, IDS_FILE,
+                    SIGLIP_ID, CLIP_BASELINE, image_paths)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -28,7 +28,7 @@ def encode(model_arg, out_file):
         model, _, pp = open_clip.create_model_and_transforms(model_arg)
     model = model.to(DEVICE).eval()
 
-    paths = sorted(DATA_DIR.glob("*.jpg"))[:N_IMAGES]
+    paths = image_paths()
     dl = DataLoader(ImgDS(paths, pp), batch_size=32, num_workers=0)  # 4GB VRAM, Windows
     chunks = []
     for batch in tqdm(dl, desc=str(out_file.name)):

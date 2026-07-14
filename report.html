@@ -25,7 +25,7 @@
 
 <h1>Multimodal Fashion &amp; Context Retrieval</h1>
 <p class="sub">Decompose-and-Verify hybrid retrieval for compositional fashion search · Glance ML Assignment</p>
-<p class="kv">Corpus: Fashionpedia (1,000-image working subset) · Query on CPU, ~1 GB RAM · Index on a single GPU</p>
+<p class="kv">Corpus: Fashionpedia + Pexels top-up (1,150 images) · Query on CPU, ~1 GB RAM · Index on a single GPU · Live dashboard included (&sect;9)</p>
 
 <h2>1 · Problem &amp; Dataset</h2>
 <p>Retrieve images from a natural-language description that specifies <b>what</b> is worn (garment + color),
@@ -33,23 +33,25 @@
 <b>compositional binding</b>: "red tie and white shirt" must not match "white tie and red shirt". A single
 global CLIP embedding is a bag-of-words over the image and fails exactly here.</p>
 
-<p>Dataset is Fashionpedia (PRD-endorsed). I index a 1,000-image subset — the assignment's stated design
-scale — keeping captions, embeddings, and the index aligned on one set. Measured coverage of the required
-axes (from the structured caption index):</p>
+<p>Dataset is Fashionpedia (PRD-endorsed), a 1,000-image working subset (the assignment's stated design scale).
+Fashionpedia alone is runway/studio-heavy and has essentially no office scenes, so it was topped up with 150
+Pexels photos (free API, index-time only — zero query-time cost) targeting exactly the graded axes: office,
+park, home, raincoat. Measured coverage before/after, from the structured caption index:</p>
 <table>
-  <tr><th>Axis</th><th>Coverage</th><th>Assessment</th></tr>
-  <tr><td>Clothing types (formal / casual / outerwear)</td><td>Broad</td><td>Primary strength — Fashionpedia is garment-dense</td></tr>
-  <tr><td>Color palette</td><td>Wide</td><td>Full spectrum incl. multi-word colors (navy, burgundy…)</td></tr>
-  <tr><td>Environment · street / urban</td><td>~16%</td><td>Real editorial street shots</td></tr>
-  <tr><td>Environment · park / outdoor</td><td>~16%</td><td>Bench, grass, trees</td></tr>
-  <tr><td>Environment · home / indoor</td><td>low</td><td>Present (library, rooms) but sparse</td></tr>
-  <tr><td class="gap">Environment · office</td><td class="gap">~0%</td><td class="gap">Genuine hole — see limitation below</td></tr>
+  <tr><th>Axis</th><th>Before top-up</th><th>After top-up</th><th>Assessment</th></tr>
+  <tr><td>Clothing types (formal / casual / outerwear)</td><td colspan="2">Broad</td><td>Primary strength — Fashionpedia is garment-dense</td></tr>
+  <tr><td>Color palette</td><td colspan="2">Wide</td><td>Full spectrum incl. multi-word colors (navy, burgundy…)</td></tr>
+  <tr><td>Environment · street / urban</td><td>15 imgs</td><td>155 imgs</td><td>Real editorial + candid street shots</td></tr>
+  <tr><td>Environment · park / outdoor</td><td>5 imgs</td><td>58 imgs</td><td>Bench, grass, trees</td></tr>
+  <tr><td>Environment · home / indoor</td><td>~2 imgs</td><td>30 imgs</td><td>Living room, kitchen, bedroom</td></tr>
+  <tr><td>Environment · office</td><td class="gap">0 imgs</td><td class="win">12 imgs</td><td>Was a genuine hole, now populated</td></tr>
 </table>
-<div class="note"><b>Honest limitation.</b> ~36% of Fashionpedia is runway/studio (no place context) and office scenes
-are effectively absent. Of the five eval queries, <b>q2 "modern office" has no true ground truth</b>; q1/q3/q4/q5
-are covered. Fix without diluting the fashion focus: a targeted Pexels top-up on the graded axes
-(office/park/home/raincoat) — the indexer already has the hook, gated on an API key. I deliberately did <i>not</i>
-inject non-fashion COCO images, which would pad the corpus and read as environment noise.</div>
+<div class="note"><b>Honest limitation, still present.</b> Even after the top-up, most images (~895/1150) carry no
+strong environment signal (runway/studio backgrounds), and the <code>style</code> field (formal/casual/sporty) is
+rarely inferred by the caption parser — it defaults to "other" for &gt;99% of images. So per-query ground truth
+(&sect;4.1) stays sparse for queries that require a <i>style</i> match, even where the environment now exists. I
+deliberately did <i>not</i> inject non-fashion COCO images, which would pad the corpus and read as environment
+noise rather than a targeted fix.</div>
 
 <h2>2 · Approaches &amp; Tradeoffs</h2>
 <table>
@@ -109,7 +111,7 @@ cheap structured index instead of <i>inferring</i> them from one global vector.<
 <table>
   <tr><th>Query</th><th>Mechanism that carries it</th></tr>
   <tr><td>Bright yellow raincoat</td><td>Clause emb + attr pair (yellow, raincoat); color family maps bright-yellow→yellow</td></tr>
-  <tr><td>Business attire, modern office</td><td>Style clause + env attr <span class="gap">(corpus-limited: office ~0%)</span></td></tr>
+  <tr><td>Business attire, modern office</td><td>Style clause + env attr (office now populated, 12 imgs; style rarely tagged &mdash; see &sect;1 note)</td></tr>
   <tr><td>Blue shirt, park bench</td><td>Pair (blue, shirt) attr + env=park clause; multi-attribute</td></tr>
   <tr><td>Casual weekend, city walk</td><td>Style inference (casual) + env=street; no explicit garment</td></tr>
   <tr><td>Red tie + white shirt, formal</td><td>Two-clause min-pool + two-pair attr — the compositional case</td></tr>
@@ -123,13 +125,19 @@ the hard-negative binding test below.</p>
 <h3>4.1 Ablation — retrieval quality across configurations</h3>
 <table>
 <tr><th>Config</th><th>P@5</th><th>P@10</th><th>nDCG@10</th></tr>
-<tr><td>vanilla_clip (ViT-B/32 OpenAI, dense only)</td><td>0.040</td><td>0.020</td><td>0.086</td></tr>
-<tr><td>siglip_dense (FashionSigLIP, dense only)</td><td>0.080</td><td>0.040</td><td>0.212</td></tr>
-<tr><td>siglip_minpool (+ clause min-pool)</td><td>0.080</td><td>0.040</td><td>0.212</td></tr>
-<tr class="win"><td>full_hybrid (+ attr verification)</td><td>0.080</td><td>0.040</td><td>0.400</td></tr>
+<tr><td>vanilla_clip (ViT-B/32 OpenAI, dense only)</td><td>0.160</td><td>0.180</td><td>0.228</td></tr>
+<tr><td>siglip_dense (FashionSigLIP, dense only)</td><td>0.200</td><td>0.200</td><td>0.250</td></tr>
+<tr><td>siglip_minpool (+ clause min-pool)</td><td>0.200</td><td>0.220</td><td>0.264</td></tr>
+<tr class="win"><td>full_hybrid (+ attr verification)</td><td>0.280</td><td>0.240</td><td>0.400</td></tr>
 </table>
-<p>Monotonic (hybrid nDCG <b>0.400</b> vs CLIP <b>0.086</b> &mdash; the attribute signal ranks the relevant image higher), but absolute values are floored by the corpus: only q1 and q3 have any ground truth, so 3 of 5 queries contribute nothing. The hard-negative test below is the primary quantitative evidence.</p>
-<p class="kv">Per-query relevant-image counts: q1=1, q2=0, q3=1, q4=0, q5=0 &mdash; the subset holds no office scene (q2), no single red-tie+white-shirt outfit (q5), and q4 has no bindable garment. This is the dataset limitation from &sect;1, quantified.</p>
+<p>Monotonic at every step (hybrid P@5 <b>0.280</b> vs CLIP <b>0.160</b>, nDCG <b>0.400</b> vs <b>0.228</b>) and improved
+across the board after the Pexels top-up (&sect;1) &mdash; q1's ground truth alone grew from 1&rarr;18 relevant images.
+Still floored by two remaining queries with zero ground truth. The hard-negative test below is the primary,
+corpus-independent quantitative evidence.</p>
+<p class="kv">Per-query relevant-image counts: q1=18, q2=0, q3=2, q4=0, q5=0 &mdash; q2/q4 fail on the <code>style</code>
+tag being sparsely inferred (see &sect;1 note), not on missing environment; q5 needs a single image with both a red
+tie <i>and</i> a white shirt, which this corpus doesn't happen to contain. This is the auto-labeler's strictness
+(attr==1.0 requires <i>every</i> parsed component), quantified.</p>
 
 <h3>4.2 Hard-negative binding test — the compositionality proof</h3>
 <p>Mine image pairs sharing a garment type but with swapped colors (e.g. a red dress vs a blue dress). Query one color;
@@ -137,8 +145,8 @@ the correctly-colored image must outrank its twin. A bag-of-words embedding land
 verification approaches 1.0. This single number substantiates the hint's "red shirt / blue pants" challenge on real data.</p>
 <table>
 <tr><th>Scorer</th><th>Binding accuracy &nbsp;(correct query ranks image above its color-swapped negative)</th></tr>
-<tr><td>vanilla_clip &mdash; single global embedding</td><td>0.550 &nbsp;<span class="gap">&asymp; chance</span></td></tr>
-<tr><td>siglip_dense &mdash; fashion-pretrained dense</td><td>0.662</td></tr>
+<tr><td>vanilla_clip &mdash; single global embedding</td><td>0.450 &nbsp;<span class="gap">&asymp; chance</span></td></tr>
+<tr><td>siglip_dense &mdash; fashion-pretrained dense</td><td>0.613</td></tr>
 <tr class="win"><td><b>full_hybrid &mdash; explicit attribute verification</b></td><td><b>1.000</b></td></tr>
 </table>
 <p>80 images, each with two differently-colored garments. For image <i>(c1 t1, c2 t2)</i> we score the correct query
@@ -187,9 +195,30 @@ from the structured index, not from any trained class.</p>
 
 <h2>8 · Codebase</h2>
 <p><b>GitHub:</b> <a href="https://github.com/Neal006/multimodal-fashion-retrieval">github.com/Neal006/multimodal-fashion-retrieval</a></p>
-<pre>indexer/   01_dataset (Pexels top-up hook) · 02_caption (SmolVLM→structured) · 03_encode · 04_build_index
+<pre>server.py             FastAPI dashboard — the "1 command" entry point
+static/index.html     minimal search UI (vanilla JS, no build step)
+indexer/   01_dataset (Fashionpedia + Pexels top-up) · 02_caption (SmolVLM→structured,
+           incremental) · 03_encode (image embeddings) · 04_build_index (FAISS)
 retriever/ parser (zero-LLM decomposition) · encoder · search (hybrid scorer) · cli
 eval/      queries · make_qrels · metrics · run_ablation · hard_negative
-config.py  all paths/weights — logic fully separated from data</pre>
-<p class="kv">Run: <code>03_encode → 04_build_index → 02_caption → retriever.cli / eval.*</code>. Query-time loads only the
-text tower + FAISS + captions (~1 GB); image encoder and VLM never load at query time.</p>
+config.py  all paths/weights/image-selection — logic fully separated from data</pre>
+<p class="kv">Rebuild: <code>01_dataset → 03_encode → 04_build_index → 02_caption → eval.*</code>. Query-time loads only
+the text tower + FAISS + captions (~1 GB); image encoder and VLM never load at query time.</p>
+
+<h2>9 · Dashboard</h2>
+<p>A single command runs the full system locally: <code>python server.py</code>. It starts a FastAPI server that
+loads the model and index once at startup, then opens <code>http://127.0.0.1:8000</code> in the browser
+automatically. Type a query, get the top-5 images with score and a binding badge (green = every parsed attribute
+verified against that image).</p>
+<table>
+  <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+  <tr><td>Server</td><td>FastAPI + Uvicorn, single process</td><td>Model/index load once, not per-request — the dominant latency lever</td></tr>
+  <tr><td>UI</td><td>One static HTML file, vanilla JS</td><td>No build step, no npm/node — true "1 command"</td></tr>
+  <tr><td>Images</td><td>Served directly from disk (<code>StaticFiles</code>)</td><td>No base64 re-encoding overhead per request</td></tr>
+  <tr><td>Query encoder</td><td>Torch-CPU (ONNX int8 deferred, &sect;3)</td><td>No GPU needed at query time; matches the ~1 GB RAM design target</td></tr>
+</table>
+<p>Measured end-to-end (server-reported <code>latency_ms</code>, warm process, CPU text encoder, 1150-image FAISS
+index): <b>~150–250ms per query</b>, dominated by encoding the query + up to 5 clauses through the SigLIP text
+tower — FAISS search, attribute scoring, and BM25 over the top-50 candidates are sub-millisecond by comparison.
+Per &sect;5, this stays flat as the corpus scales because rescoring only ever touches <code>TOP_CAND</code>
+candidates, not the full index.</p>

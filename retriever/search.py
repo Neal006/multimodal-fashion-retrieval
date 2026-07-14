@@ -16,16 +16,18 @@ class FashionSearch:
     def __init__(self):
         self.index = faiss.read_index(FAISS_FILE)
         self.ids = json.load(open(IDS_FILE))
-        self.caps = {}
-        docs = []
-        for line in open(CAPTIONS_FILE, encoding="utf-8"):
-            r = json.loads(line)
-            self.caps[r["id"]] = r
-            text = " ".join([r.get("caption", ""),
+        self.caps = {json.loads(l)["id"]: json.loads(l)
+                     for l in open(CAPTIONS_FILE, encoding="utf-8")}
+
+        def doc_text(r):
+            return " ".join([r.get("caption", ""),
                              " ".join(f"{g.get('color','')} {g.get('type','')}"
                                       for g in r.get("garments", [])),
-                             r.get("environment", ""), r.get("style", "")])
-            docs.append(text.lower().split())
+                             r.get("environment", ""), r.get("style", "")]).lower().split()
+
+        # bm_all[idxs] in search() indexes BM25 docs positionally against FAISS rows,
+        # so doc order must match self.ids order exactly — build from self.ids, not file order.
+        docs = [doc_text(self.caps[i]) for i in self.ids]
         self.bm25 = BM25Okapi(docs)
         self.enc = QueryEncoder()
         print("backend:", self.enc.backend, "| images:", self.index.ntotal)

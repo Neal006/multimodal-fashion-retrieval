@@ -12,6 +12,9 @@ from tqdm import tqdm
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from config import DATA_DIR
+from dotenv import load_dotenv
+
+load_dotenv()  # load PEXELS_API_KEY from .env
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

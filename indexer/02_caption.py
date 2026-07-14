@@ -10,7 +10,7 @@ import json, torch
 from PIL import Image
 from tqdm import tqdm
 from transformers import AutoProcessor, AutoModelForImageTextToText
-from config import DATA_DIR, CAPTIONS_FILE, VLM_ID, N_IMAGES
+from config import CAPTIONS_FILE, VLM_ID, image_paths
 from retriever.parser import parse
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -31,14 +31,22 @@ def structured(caption: str) -> dict:
 
 
 def main():
+    paths = image_paths()
+    already = set()
+    if CAPTIONS_FILE.exists():
+        already = {json.loads(l)["id"] for l in open(CAPTIONS_FILE, encoding="utf-8")}
+    todo = [p for p in paths if p.name not in already]
+    if not todo:
+        print("nothing new to caption"); return
+    print(f"{len(already)} cached, captioning {len(todo)} new image(s)")
+
     proc = AutoProcessor.from_pretrained(VLM_ID)
     model = AutoModelForImageTextToText.from_pretrained(VLM_ID, dtype=DTYPE).to(DEVICE).eval()
     msgs = [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": PROMPT}]}]
     chat = proc.apply_chat_template(msgs, add_generation_prompt=True)
 
-    paths = sorted(DATA_DIR.glob("*.jpg"))[:N_IMAGES]
-    with open(CAPTIONS_FILE, "w", encoding="utf-8") as f:
-        for p in tqdm(paths, desc="captioning"):
+    with open(CAPTIONS_FILE, "a", encoding="utf-8") as f:
+        for p in tqdm(todo, desc="captioning"):
             img = Image.open(p).convert("RGB")
             inputs = proc(text=chat, images=[img], return_tensors="pt").to(DEVICE)
             with torch.inference_mode():

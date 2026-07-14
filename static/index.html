@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fashion Retrieval</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #fff; --border: #e5e5e5; --text: #1a1a1a;
+    --muted: #767676; --accent: #1a1a1a; --shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 920px; margin: 0 auto; padding: 48px 20px 80px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.02em; }
+  p.tagline { color: var(--muted); margin: 0 0 28px; font-size: 13.5px; }
+
+  form { display: flex; gap: 8px; margin-bottom: 10px; }
+  input[type=text] {
+    flex: 1; padding: 12px 14px; font-size: 15px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--surface); outline: none;
+    transition: border-color .15s;
+  }
+  input[type=text]:focus { border-color: #999; }
+  button {
+    padding: 12px 22px; font-size: 14.5px; font-weight: 600; border: none;
+    border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: .85; }
+  button:disabled { opacity: .4; cursor: default; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 28px; }
+  .chip {
+    font-size: 12px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--muted); cursor: pointer; white-space: nowrap;
+  }
+  .chip:hover { border-color: #999; color: var(--text); }
+
+  .status { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; min-height: 16px; }
+  .status b { color: var(--text); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    overflow: hidden; box-shadow: var(--shadow);
+  }
+  .card img { width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; background: #eee; }
+  .card .meta { padding: 8px 10px 10px; }
+  .card .score { font-size: 11px; font-weight: 600; color: var(--text); }
+  .card .cap {
+    font-size: 11px; color: var(--muted); margin-top: 3px; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .badge {
+    display: inline-block; font-size: 9.5px; font-weight: 700; padding: 1px 5px;
+    border-radius: 4px; margin-left: 5px; vertical-align: 1px;
+  }
+  .badge.ok { background: #e6f6ea; color: #1a7a35; }
+  .badge.no { background: #fbeaea; color: #b23; }
+
+  .empty { color: var(--muted); font-size: 13.5px; padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fashion Retrieval</h1>
+  <p class="tagline">Decompose-and-Verify hybrid search &middot; FashionSigLIP + attribute binding + BM25</p>
+
+  <form id="f">
+    <input id="q" type="text" autocomplete="off" placeholder="e.g. a black jacket and blue jeans" autofocus>
+    <button type="submit" id="go">Search</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <div class="status" id="status">&nbsp;</div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<script>
+const EXAMPLES = [
+  "A person in a bright yellow raincoat",
+  "Professional business attire inside a modern office",
+  "Someone wearing a blue shirt sitting on a park bench",
+  "Casual weekend outfit for a city walk",
+  "A red tie and a white shirt in a formal setting",
+];
+const chips = document.getElementById('chips');
+EXAMPLES.forEach(q => {
+  const c = document.createElement('span');
+  c.className = 'chip'; c.textContent = q;
+  c.onclick = () => { document.getElementById('q').value = q; runSearch(q); };
+  chips.appendChild(c);
+});
+
+const form = document.getElementById('f');
+const input = document.getElementById('q');
+const btn = document.getElementById('go');
+const status = document.getElementById('status');
+const grid = document.getElementById('grid');
+
+form.addEventListener('submit', e => { e.preventDefault(); runSearch(input.value); });
+
+async function runSearch(q) {
+  q = q.trim();
+  if (!q) return;
+  btn.disabled = true;
+  status.innerHTML = 'Searching&hellip;';
+  grid.innerHTML = '';
+  const t0 = performance.now();
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&k=5`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const clientMs = Math.round(performance.now() - t0);
+    status.innerHTML = `<b>${data.results.length}</b> results &middot; server <b>${data.latency_ms}ms</b> &middot; round-trip <b>${clientMs}ms</b>`;
+    if (!data.results.length) {
+      grid.innerHTML = '<div class="empty">No matches.</div>';
+    } else {
+      grid.innerHTML = data.results.map(r => `
+        <div class="card">
+          <img src="${r.url}" loading="lazy" alt="">
+          <div class="meta">
+            <div class="score">score ${r.score.toFixed(3)}
+              <span class="badge ${r.attr >= 0.99 ? 'ok' : 'no'}">attr ${r.attr.toFixed(2)}</span>
+            </div>
+            <div class="cap">${r.caption || ''}</div>
+          </div>
+        </div>`).join('');
+    }
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
