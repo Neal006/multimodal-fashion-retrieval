@@ -8,6 +8,7 @@ pillow
 numpy
 tqdm
 onnxruntime             # query-time; ONNX export deferred, torch-cpu fallback used
+outlines                 # grammar-constrained style classification in 02_caption.py
 python-dotenv            # loads PEXELS_API_KEY from .env for indexer/01_dataset.py
 requests                 # indexer/01_dataset.py Pexels top-up
 fastapi                  # dashboard server

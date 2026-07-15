@@ -46,10 +46,12 @@ park, home, raincoat. Measured coverage before/after, from the structured captio
   <tr><td>Environment · home / indoor</td><td>~2 imgs</td><td>30 imgs</td><td>Living room, kitchen, bedroom</td></tr>
   <tr><td>Environment · office</td><td class="gap">0 imgs</td><td class="win">12 imgs</td><td>Was a genuine hole, now populated</td></tr>
 </table>
-<div class="note"><b>Honest limitation, still present.</b> Even after the top-up, most images (~895/1150) carry no
-strong environment signal (runway/studio backgrounds), and the <code>style</code> field (formal/casual/sporty) is
-rarely inferred by the caption parser — it defaults to "other" for &gt;99% of images. So per-query ground truth
-(&sect;4.1) stays sparse for queries that require a <i>style</i> match, even where the environment now exists. I
+<div class="note"><b>Honest limitation, partially resolved.</b> Even after the top-up, most images (~895/1150) carry no
+strong environment signal (runway/studio backgrounds) — that gap is still present, by design (see &sect;7.1 for the
+fix path). The <code>style</code> field originally had the same problem (&gt;99% "other", since caption prose rarely
+says "formal"/"casual"), but that one was fixed post-launch: a single-token grammar-constrained classification
+(<code>outlines</code>, asked directly of the image rather than inferred from prose) replaced the lexicon guess,
+moving the corpus to 677 formal / 473 casual / 0 other. &sect;4.1 shows the retrieval-quality effect. I
 deliberately did <i>not</i> inject non-fashion COCO images, which would pad the corpus and read as environment
 noise rather than a targeted fix.</div>
 
@@ -111,7 +113,7 @@ cheap structured index instead of <i>inferring</i> them from one global vector.<
 <table>
   <tr><th>Query</th><th>Mechanism that carries it</th></tr>
   <tr><td>Bright yellow raincoat</td><td>Clause emb + attr pair (yellow, raincoat); color family maps bright-yellow→yellow</td></tr>
-  <tr><td>Business attire, modern office</td><td>Style clause + env attr (office now populated, 12 imgs; style rarely tagged &mdash; see &sect;1 note)</td></tr>
+  <tr><td>Business attire, modern office</td><td>Style clause + env attr (office populated, 12 imgs; style directly classified per-image &mdash; see &sect;1 note)</td></tr>
   <tr><td>Blue shirt, park bench</td><td>Pair (blue, shirt) attr + env=park clause; multi-attribute</td></tr>
   <tr><td>Casual weekend, city walk</td><td>Style inference (casual) + env=street; no explicit garment</td></tr>
   <tr><td>Red tie + white shirt, formal</td><td>Two-clause min-pool + two-pair attr — the compositional case</td></tr>
@@ -125,18 +127,21 @@ the hard-negative binding test below.</p>
 <h3>4.1 Ablation — retrieval quality across configurations</h3>
 <table>
 <tr><th>Config</th><th>P@5</th><th>P@10</th><th>nDCG@10</th></tr>
-<tr><td>vanilla_clip (ViT-B/32 OpenAI, dense only)</td><td>0.160</td><td>0.180</td><td>0.228</td></tr>
-<tr><td>siglip_dense (FashionSigLIP, dense only)</td><td>0.200</td><td>0.200</td><td>0.250</td></tr>
-<tr><td>siglip_minpool (+ clause min-pool)</td><td>0.200</td><td>0.220</td><td>0.264</td></tr>
-<tr class="win"><td>full_hybrid (+ attr verification)</td><td>0.280</td><td>0.240</td><td>0.400</td></tr>
+<tr><td>vanilla_clip (ViT-B/32 OpenAI, dense only)</td><td>0.320</td><td>0.340</td><td>0.394</td></tr>
+<tr><td>siglip_dense (FashionSigLIP, dense only)</td><td>0.440</td><td>0.420</td><td>0.485</td></tr>
+<tr><td>siglip_minpool (+ clause min-pool)</td><td>0.440</td><td>0.420</td><td>0.464</td></tr>
+<tr class="win"><td>full_hybrid (+ attr verification)</td><td>0.680</td><td>0.560</td><td>0.778</td></tr>
 </table>
-<p>Monotonic at every step (hybrid P@5 <b>0.280</b> vs CLIP <b>0.160</b>, nDCG <b>0.400</b> vs <b>0.228</b>) and improved
-across the board after the Pexels top-up (&sect;1) &mdash; q1's ground truth alone grew from 1&rarr;18 relevant images.
-Still floored by two remaining queries with zero ground truth. The hard-negative test below is the primary,
-corpus-independent quantitative evidence.</p>
-<p class="kv">Per-query relevant-image counts: q1=18, q2=0, q3=2, q4=0, q5=0 &mdash; q2/q4 fail on the <code>style</code>
-tag being sparsely inferred (see &sect;1 note), not on missing environment; q5 needs a single image with both a red
-tie <i>and</i> a white shirt, which this corpus doesn't happen to contain. This is the auto-labeler's strictness
+<p>Monotonic at every step (hybrid P@5 <b>0.680</b> vs CLIP <b>0.320</b>, nDCG <b>0.778</b> vs <b>0.394</b>). Two
+factors moved every row here versus the first pass: the Pexels top-up (&sect;1) grew q1's ground truth from
+1&rarr;18 relevant images, and fixing the <code>style</code> field (&sect;1 note) made the <code>_attr()</code>
+style-match term an actual signal instead of comparing against "other" for 99.7% of the corpus — full_hybrid alone
+moved from 0.400&rarr;0.778 nDCG@10 on that second fix. The hard-negative test below remains the primary,
+corpus-independent quantitative evidence, unaffected by either fix.</p>
+<p class="kv">Per-query relevant-image counts: q1=18, q2=7, q3=2, q4=129, q5=0 &mdash; q2/q4 recovered once
+<code>style</code> stopped defaulting to "other" (q4 alone went from 0&rarr;129). q5 still has zero ground truth: it
+needs a single image captioned with both a red tie <i>and</i> a white shirt on the same person, which this corpus
+doesn't happen to contain — a data-coverage gap, not a style-tagging one. This is the auto-labeler's strictness
 (attr==1.0 requires <i>every</i> parsed component), quantified.</p>
 
 <h3>4.2 Hard-negative binding test — the compositionality proof</h3>
@@ -184,10 +189,21 @@ from the structured index, not from any trained class.</p>
       pre-filters on city+weather before the dense stage.</li>
 </ul>
 <h3>7.2 Improving precision</h3>
+<p><b>Done:</b> the caption pipeline's <code>style</code> field was the biggest lever available without a training
+run — grammar-constrained single-token classification (<code>outlines</code>) replaced a lexicon guess that
+defaulted to "other" 99.7% of the time, moving full_hybrid nDCG@10 from 0.400 to 0.778 (&sect;4.1). A broader
+schema-constrained approach (ask the VLM for garments/environment/style/caption in one JSON call) was tried first
+and rejected: it hallucinated garments to fill the schema and degraded the caption text itself — constrained
+decoding guarantees valid syntax, not accurate semantics, and this 500M model's strength is free-form prose, not
+one-shot structured extraction.</p>
+<p><b>Remaining:</b></p>
 <ul>
+  <li>Swap the dense backbone to <code>Marqo-fashionSigLIP-2</code> (claimed +78% MRR/recall over the v1 model in
+      use) — blocked on no public weights existing yet; gated behind a vendor demo request.</li>
   <li>Cross-encoder re-rank of the top-20 with a BLIP-2 image-text-matching head (index-time-only flag).</li>
   <li>GCL-style fine-tune of FashionSigLIP on Fashionpedia attribute pairs with swapped-color hard negatives —
-      directly targets the binding failure mode.</li>
+      directly targets the binding failure mode. (Hard-negative pairs are already mined by <code>eval/hard_negative.py</code>;
+      the remaining work is a training loop, not new data.)</li>
   <li>Region grounding: run the Fashionpedia segmentation masks to attach colors to garment regions, upgrading the
       attribute index from caption-derived to pixel-derived.</li>
   <li>Prompt-ensemble the clause templates and average, reducing template sensitivity.</li>
